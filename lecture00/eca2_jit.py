@@ -14,6 +14,9 @@ Learning objectives:
 
 import time
 import numpy as np
+import jax
+import jax.numpy as jnp
+
 import tyro
 from jaxtyping import Array, UInt8, Bool
 import matthewplotlib as mp
@@ -28,11 +31,28 @@ def main(
     save_image: bool = False,
 ):
     start_time = time.perf_counter()
-    states = simulate(
+    compiled_simulate = jax.jit(
+        simulate, 
+        static_argnames=['width', 'num_steps']
+    )
+    states = compiled_simulate(
         rule=rule,
         width=width,
         num_steps=num_steps,
-    )
+    ).block_until_ready()
+    end_time = time.perf_counter()
+    print("compilation complete!")
+    print(f"time taken {end_time - start_time:.5f} seconds")
+    
+    
+   
+    
+    start_time = time.perf_counter()
+    states = compiled_simulate(
+        rule=rule,
+        width=width,
+        num_steps=num_steps,
+    ).block_until_ready()
     end_time = time.perf_counter()
     print("simulation complete!")
     print(f"time taken {end_time - start_time:.5f} seconds")
@@ -42,7 +62,8 @@ def main(
 
     if save_image:
         print("rendering to 'output.png'...")
-        Image.fromarray(255 - 255 * states).save('output.png')
+        numpy_state = np.asarray(states)
+        Image.fromarray(255 - 255 * numpy_state).save('output.png')
 
 
 def simulate(
@@ -51,28 +72,29 @@ def simulate(
     num_steps: int,
 ) -> UInt8[Array, "num_steps width"]:
     # parse rule
-    rule_uint8 = np.uint8(rule)
-    print(f"rule: {rule_uint8:3d} (0b{rule_uint8:08b})")
+    rule_uint8 = jnp.uint8(rule)
+    #print(f"rule: {rule_uint8:3d} (0b{rule_uint8:08b})")
     
-    rule_bits = np.unpackbits(rule_uint8, bitorder='little')
-    print("bits:", rule_bits)
+    rule_bits = jnp.unpackbits(rule_uint8, bitorder='little')
+    #print("bits:", rule_bits)
     
     rule_table = rule_bits.reshape(2,2,2)
-    for i in range(2):
-        for j in range(2):
-            for k in range(2):
-                print(f"rule_table[{i},{j},{k}] = {rule_table[i,j,k]}")
+    # for i in range(2):
+    #     for j in range(2):
+    #         for k in range(2):
+    #             print(f"rule_table[{i},{j},{k}] = {rule_table[i,j,k]}")
     
     # initialise state
     state: UInt8[Array, "width"]
-    state = np.zeros(width, dtype=np.uint8)
-    state[width//2] = 1
+    state = jnp.zeros(width, dtype=jnp.uint8)
+    #state[width//2] = 1
+    state = state.at[width//2].set(1)
 
     # simulate
     states = [state]
     for t in range(num_steps-1):
         state_wrapped: UInt8[Array, "width+2"]
-        state_wrapped = np.pad(state, 1, mode='wrap')
+        state_wrapped = jnp.pad(state, 1, mode='wrap')
         state = rule_table[
             state_wrapped[0:-2],
             state_wrapped[1:-1],
@@ -80,7 +102,7 @@ def simulate(
         ]
         states.append(state)
     
-    return np.stack(states)
+    return jnp.stack(states)
 
 
 if __name__ == "__main__":
